@@ -240,11 +240,17 @@ class FakeHighLevel:
     def _email_key(self, raw: str) -> str:
         return normalise_email(raw)
 
-    def _phone_key(self, state: _LocationState, raw: str) -> str:
+    def _phone_key(self, state: _LocationState, raw: str) -> str | None:
+        """The E.164 dedupe key, or None when the number does not determine
+        one. An unresolvable phone is stored as a field but never indexed:
+        indexing the raw string would merge two strangers who both typed
+        "N/A" into the form, and trimming it with ``str.strip`` would break
+        the ASCII-only doctrine everything else keys on. No key, no match,
+        no merge."""
         result = normalise_phone(raw, default_region=state.location.default_region)
         if isinstance(result, NormalisedPhone):
             return result.e164
-        return raw.strip()
+        return None
 
     def _store_contact(self, state: _LocationState, upsert: ContactUpsert) -> Contact:
         """The documented upsert semantics: within the location, an existing
@@ -296,7 +302,9 @@ class FakeHighLevel:
         if contact.email:
             state.email_index[self._email_key(contact.email)] = contact.contact_id
         if contact.phone:
-            state.phone_index[self._phone_key(state, contact.phone)] = contact.contact_id
+            phone_key = self._phone_key(state, contact.phone)
+            if phone_key is not None:
+                state.phone_index[phone_key] = contact.contact_id
 
     def _append_message(
         self,
@@ -374,6 +382,8 @@ class _ScopedPort:
     def search_contacts_by_phone(self, location_id: str, phone: str) -> tuple[Contact, ...]:
         state = self._state(location_id)
         key = self._server._phone_key(state, phone)
+        if key is None:
+            return ()
         contact_id = state.phone_index.get(key)
         if contact_id is None:
             return ()

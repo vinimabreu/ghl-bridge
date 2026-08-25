@@ -242,3 +242,85 @@ def test_a_fresh_delivery_id_never_changes_the_key() -> None:
     whole point of keying on the event."""
     body = event_body(event_id="evt-7", event_type="ContactCreate")
     assert event_key(event_of(body)) == "id:evt-7"
+
+
+# ------------------------------------------------------- the store seam
+
+
+def test_a_shared_seen_store_survives_an_intake_restart() -> None:
+    """The durability contract, proven with the seam: two intakes (the
+    process before and after a restart) share one store, and the retry
+    that arrives after the restart is still a duplicate."""
+    from ghl_bridge import InMemoryKeyStore
+
+    store = InMemoryKeyStore()
+    handled: list[WebhookEvent] = []
+    raw, signature = signed(LEAD)
+
+    def intake_process() -> WebhookIntake:
+        return WebhookIntake(
+            scheme=HmacSha256Scheme(secret=SECRET),
+            handler=handled.append,
+            ledger=AuditLedger(),
+            clock=FakeClock(T0),
+            seen_store=store,
+        )
+
+    first = intake_process().receive(raw, signature=signature, delivery_id="dlv-1")
+    second = intake_process().receive(raw, signature=signature, delivery_id="dlv-2")
+    assert isinstance(first, Accepted)
+    assert isinstance(second, Duplicate)
+    assert second.first_delivery_id == "dlv-1"
+    assert len(handled) == 1
+
+
+def test_the_default_store_is_process_local_and_that_is_stated() -> None:
+    """The honest edge, pinned instead of hidden: with the default
+    in-memory store, a fresh intake (a restarted process) re-runs a
+    redelivered event. This is exactly why the RUNBOOK requires a durable
+    store before real traffic."""
+    handled: list[WebhookEvent] = []
+    raw, signature = signed(LEAD)
+
+    def intake_process() -> WebhookIntake:
+        return WebhookIntake(
+            scheme=HmacSha256Scheme(secret=SECRET),
+            handler=handled.append,
+            ledger=AuditLedger(),
+            clock=FakeClock(T0),
+        )
+
+    intake_process().receive(raw, signature=signature, delivery_id="dlv-1")
+    result = intake_process().receive(raw, signature=signature, delivery_id="dlv-2")
+    assert isinstance(result, Accepted)
+    assert len(handled) == 2
+
+
+# ------------------------------------------------------ malformed bodies
+
+
+def test_a_signed_but_unparseable_body_is_a_ledger_line_then_a_raise() -> None:
+    """A body that verifies but cannot be parsed means the secret is right
+    and the payload shape changed; that is an operational event, not a
+    silent stack trace."""
+    handled: list[WebhookEvent] = []
+    intake, ledger, _ = make_intake(handled)
+    raw = b"not json at all"
+    signature = HmacSha256Scheme(secret=SECRET).sign(raw)
+    with pytest.raises(ValueError):
+        intake.receive(raw, signature=signature, delivery_id="dlv-bad")
+    malformed = ledger.of_kind("webhook_malformed")
+    assert len(malformed) == 1
+    assert malformed[0].detail["delivery_id"] == "dlv-bad"
+    assert handled == []
+
+
+def test_a_signed_body_that_fails_validation_is_recorded_the_same_way() -> None:
+    handled: list[WebhookEvent] = []
+    intake, ledger, _ = make_intake(handled)
+    raw = json.dumps({"event_type": "ContactCreate"}).encode()  # missing fields
+    signature = HmacSha256Scheme(secret=SECRET).sign(raw)
+    with pytest.raises(ValueError):
+        intake.receive(raw, signature=signature, delivery_id="dlv-bad2")
+    assert len(ledger.of_kind("webhook_malformed")) == 1
+    assert handled == []

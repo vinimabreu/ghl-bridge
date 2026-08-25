@@ -23,13 +23,21 @@ from .clock import Clock
 from .ledger import AuditLedger
 from .models import Approval, Message, OutboundSend
 from .ports import HighLevelPort
+from .store import InMemoryKeyStore, KeyStore
 
 
 def content_fingerprint(send: OutboundSend) -> str:
     """The exact thing an approval covers: this text, to this contact, on
     this channel. Change any of the three and it is a different message
-    that nobody approved."""
-    material = "|".join([send.contact_id, send.channel, send.body])
+    that nobody approved.
+
+    Each field is length-prefixed before joining, so the field boundaries
+    are part of the hash: a plain join would let ``("con-1|S", "MS")`` and
+    ``("con-1", "S|MS")`` collide into one fingerprint, and a fingerprint
+    two different messages share is an approval that travels."""
+    material = "|".join(
+        f"{len(part)}:{part}" for part in (send.contact_id, send.channel, send.body)
+    )
     return hashlib.sha256(material.encode()).hexdigest()
 
 
@@ -61,6 +69,12 @@ class ApprovedSender:
       different contact or a different text;
     - the approval must not have been used already, which catches a retry
       loop replaying one approval across many sends.
+
+    The spent-approval ids live behind an injected
+    :class:`~ghl_bridge.store.KeyStore` defaulting to process-local
+    memory, so the single-use rule holds per process lifetime; inject a
+    durable store to make it hold across restarts. The RUNBOOK carries
+    the step.
     """
 
     def __init__(
@@ -69,11 +83,12 @@ class ApprovedSender:
         port: HighLevelPort,
         ledger: AuditLedger,
         clock: Clock,
+        spent_store: KeyStore | None = None,
     ) -> None:
         self._port = port
         self._ledger = ledger
         self._clock = clock
-        self._spent: set[str] = set()
+        self._spent: KeyStore = spent_store if spent_store is not None else InMemoryKeyStore()
 
     def send(
         self,
@@ -91,7 +106,7 @@ class ApprovedSender:
                 "the approval covers different content; the draft changed "
                 "after it was approved, or it was minted for another message"
             )
-        elif approval.decision_id in self._spent:
+        elif self._spent.get(approval.decision_id) is not None:
             why = f"approval {approval.decision_id!r} was already used for a send"
 
         if why is not None:
@@ -108,7 +123,7 @@ class ApprovedSender:
 
         assert approval is not None
         message = self._port.send_message(location_id, send)
-        self._spent.add(approval.decision_id)
+        self._spent.set(approval.decision_id, message.message_id)
         self._ledger.record(
             at=self._clock(),
             kind="message_sent",

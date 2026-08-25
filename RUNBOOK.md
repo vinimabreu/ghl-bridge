@@ -92,3 +92,9 @@ a human asks about.
 - Decide who the named human approvers are. The release path requires a
   name and the ledger keeps it; that is a feature to preserve, not
   friction to remove.
+- Replace both `InMemoryKeyStore` defaults with a durable `KeyStore`
+  implementation: the intake's seen-event store and the sender's
+  spent-approval store. In-memory is process-local, so a restart plus a
+  sender retry re-applies an event that already ran, and a restarted
+  process forgets which approvals were spent. A database table or a
+  key-value service behind the two-method protocol is enough.

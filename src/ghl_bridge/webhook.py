@@ -34,6 +34,7 @@ from typing import Protocol
 from .clock import Clock
 from .ledger import AuditLedger
 from .models import WebhookEvent
+from .store import InMemoryKeyStore, KeyStore
 
 
 class SignatureScheme(Protocol):
@@ -139,6 +140,12 @@ class WebhookIntake:
     partial writes safe to re-run, which every handler in
     :class:`ghl_bridge.bridge.Bridge` does by resolving contacts through
     upsert and dedupe rather than blind creation.
+
+    The seen keys live behind an injected :class:`~ghl_bridge.store.KeyStore`
+    and default to process-local memory, which means the contract above
+    holds per process lifetime: a restart forgets the keys, and a sender
+    retry after a restart re-runs the event. Inject a durable store to make
+    it hold across restarts; the RUNBOOK carries the step.
     """
 
     def __init__(
@@ -148,12 +155,13 @@ class WebhookIntake:
         handler: Callable[[WebhookEvent], None],
         ledger: AuditLedger,
         clock: Clock,
+        seen_store: KeyStore | None = None,
     ) -> None:
         self._scheme = scheme
         self._handler = handler
         self._ledger = ledger
         self._clock = clock
-        self._seen: dict[str, str] = {}
+        self._seen: KeyStore = seen_store if seen_store is not None else InMemoryKeyStore()
 
     def receive(self, raw_body: bytes, *, signature: str, delivery_id: str) -> IntakeResult:
         try:
@@ -166,11 +174,24 @@ class WebhookIntake:
             )
             return Rejected(delivery_id=delivery_id, reason=exc.reason)
 
-        event = WebhookEvent.model_validate(json.loads(raw_body))
+        try:
+            event = WebhookEvent.model_validate(json.loads(raw_body))
+        except ValueError:
+            # Covers malformed JSON and a body that fails validation
+            # (pydantic's ValidationError subclasses ValueError). A body
+            # that verified but cannot be parsed is an operational event
+            # worth a ledger line, not a silent stack trace: it means the
+            # secret is right and the sender's payload shape changed.
+            self._ledger.record(
+                at=self._clock(),
+                kind="webhook_malformed",
+                detail={"delivery_id": delivery_id},
+            )
+            raise
         key = event_key(event)
 
-        if key in self._seen:
-            first = self._seen[key]
+        first = self._seen.get(key)
+        if first is not None:
             self._ledger.record(
                 at=self._clock(),
                 kind="webhook_duplicate",
@@ -201,5 +222,5 @@ class WebhookIntake:
                 detail={"event_key": key, "delivery_id": delivery_id},
             )
             raise
-        self._seen[key] = delivery_id
+        self._seen.set(key, delivery_id)
         return Accepted(key=key, delivery_id=delivery_id)

@@ -198,9 +198,10 @@ class Conversation(_Frozen):
 
 class OutboundSend(_Frozen):
     """What the caller asks the platform to send. Approval is not a field
-    here on purpose: it travels beside the send in
-    :class:`ghl_bridge.guard.ApprovedOutbound`, so a send without one is a
-    type error at the guard, not a default that quietly passes."""
+    here on purpose: it travels beside the send through
+    :class:`ghl_bridge.guard.ApprovedSender`, so a send without one is a
+    runtime :class:`ghl_bridge.guard.UnapprovedOutbound`, recorded and
+    raised at the guard, not a default that quietly passes."""
 
     contact_id: str
     body: str

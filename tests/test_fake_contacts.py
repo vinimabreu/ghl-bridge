@@ -204,3 +204,43 @@ def test_issuing_a_token_for_a_ghost_location_404s(clock) -> None:
     server = FakeHighLevel(clock=clock)
     with pytest.raises(NotFound):
         server.issue_private_token("loc-ghost")
+
+
+def test_two_strangers_with_the_same_unparseable_phone_do_not_merge(port) -> None:
+    """The audit case: two people whose form phone is the same junk string
+    ("N/A") are two people. Indexing the raw string would fold them into
+    one contact with one conversation history; an unresolvable phone mints
+    no key at all."""
+    ann = port.upsert_contact(
+        LOCATION_ID, ContactUpsert(first_name="Ann", email="ann@x.example", phone="N/A")
+    )
+    bob = port.upsert_contact(
+        LOCATION_ID, ContactUpsert(first_name="Bob", email="bob@x.example", phone="N/A")
+    )
+    assert ann.contact_id != bob.contact_id
+    assert port.get_contact(LOCATION_ID, ann.contact_id).first_name == "Ann"
+    assert port.get_contact(LOCATION_ID, bob.contact_id).first_name == "Bob"
+
+
+def test_an_unparseable_phone_is_stored_as_a_field_but_never_indexed(port) -> None:
+    contact = port.upsert_contact(
+        LOCATION_ID, ContactUpsert(email="junk@x.example", phone="ext-12")
+    )
+    assert contact.phone == "ext-12"  # the raw value survives as data
+    assert port.search_contacts_by_phone(LOCATION_ID, "ext-12") == ()  # but is no key
+
+
+def test_the_ascii_trim_doctrine_holds_for_phone_indexing_too(port) -> None:
+    """The anchor: "ext-12" and "ext-12" + U+3000 IDEOGRAPHIC SPACE are two
+    distinct raw strings. A str.strip() fallback would fold them onto one
+    index key behind the doctrine's back; with no raw indexing at all,
+    neither spelling can reach the other through the phone index."""
+    a = port.upsert_contact(
+        LOCATION_ID, ContactUpsert(email="exta@x.example", phone="ext-12")
+    )
+    b = port.upsert_contact(
+        LOCATION_ID, ContactUpsert(email="extb@x.example", phone="ext-12　")
+    )
+    assert a.contact_id != b.contact_id
+    assert port.search_contacts_by_phone(LOCATION_ID, "ext-12") == ()
+    assert port.search_contacts_by_phone(LOCATION_ID, "ext-12　") == ()

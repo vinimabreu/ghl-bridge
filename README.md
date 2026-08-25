@@ -3,7 +3,7 @@
 [![ci](https://github.com/vinimabreu/ghl-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/vinimabreu/ghl-bridge/actions/workflows/ci.yml)
 ![python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
-![tests](https://img.shields.io/badge/tests-366%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-379%20passing-brightgreen)
 ![typing](https://img.shields.io/badge/typing-strict-informational)
 
 A CRM automation that guesses is a liability. The bridge validates before it writes, dedupes before it creates, respects the platform's rate limits, and no message leaves for a customer without a named approval path. All of it proven offline, deterministically, with no account and no key.
@@ -203,6 +203,7 @@ Append-only, frozen records, sequence assigned inside, no update and no delete o
 - **Not a claim of exact wire shapes everywhere.** Three spots are thinner than the rest and say so in their docstrings: the contact lookup endpoint (the docs show both a query lookup and a newer search body), the free-slots response grouping (slots keyed by date, slot length not in the response), and the marketplace webhook signature scheme (a platform-signed header, seam provided, verifier pending a live app). Everything else follows the documented camelCase fields and `Version` headers.
 - **Not a generator.** Nothing in this package produces text. The seat is a typed callable, the demo fills it with a template, and the gate judges whatever sits there by its output alone.
 - **Not a multi-tenant control plane.** One bridge serves one location, which mirrors how a Private Integration token is scoped. Fan-out across locations is composition, not configuration.
+- **Not durable by default.** The intake's seen-event keys and the sender's spent-approval ids live behind an injected `KeyStore` seam and default to process-local memory: correct for the suite, the demo and a single process that accepts redelivery on restart, and gone the moment the process dies. A restart plus a sender retry re-runs an already-applied event, and a restarted process forgets which approvals were spent. `test_a_shared_seen_store_survives_an_intake_restart` proves the seam works; `test_the_default_store_is_process_local_and_that_is_stated` pins the honest edge instead of hiding it. Back both seams with a durable store before real traffic; the RUNBOOK carries the step.
 
 ## Install and verify
 
@@ -210,7 +211,7 @@ Append-only, frozen records, sequence assigned inside, no update and no delete o
 pip install -e ".[dev]"
 ruff check .          # clean
 mypy                  # strict, clean
-pytest                # 366 tests, offline, no sleeps
+pytest                # 379 tests, offline, no sleeps
 python -m examples.bridge_demo
 ```
 

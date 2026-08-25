@@ -81,6 +81,7 @@ from .ratelimit import (
     Sleeper,
     system_sleeper,
 )
+from .store import InMemoryKeyStore, KeyStore
 from .webhook import (
     Accepted,
     Duplicate,
@@ -122,9 +123,11 @@ __all__ = [
     "HighLevelError",
     "HighLevelPort",
     "HmacSha256Scheme",
+    "InMemoryKeyStore",
     "IntakeResult",
     "InvalidEmail",
     "InvalidRequest",
+    "KeyStore",
     "LedgerRecord",
     "Location",
     "LocationPacer",

@@ -179,3 +179,35 @@ def test_the_exception_carries_structured_detail() -> None:
     assert exc.contact_id == "con-9"
     assert exc.why == "no approval attached"
     assert "con-9" in str(exc)
+
+
+def test_the_fingerprint_join_has_no_field_boundary_collision() -> None:
+    """The audit case: under a plain join, ("con-1|S", "MS", "hi") and
+    ("con-1", "S|MS", "hi") hash identically and an approval for one
+    covers the other. The length prefix keeps the field boundaries inside
+    the hash."""
+    a = OutboundSend(contact_id="con-1|S", channel="MS", body="hi")
+    b = OutboundSend(contact_id="con-1", channel="S|MS", body="hi")
+    assert content_fingerprint(a) != content_fingerprint(b)
+
+
+def test_a_shared_spent_store_survives_a_sender_restart(
+    server, token, clock, ledger, dana
+) -> None:
+    """Single use must hold across process lifetimes when the operator
+    injects a durable store: the second sender (the restarted process)
+    still refuses the replayed approval."""
+    from ghl_bridge import InMemoryKeyStore
+
+    store = InMemoryKeyStore()
+    draft = OutboundSend(contact_id=dana.contact_id, body="Thursday works.")
+    gate, decision = make_gate_and_decision(clock, dana, draft)
+    approval = gate.approval_for(decision)
+
+    port = server.port_for(token)
+    before = ApprovedSender(port=port, ledger=ledger, clock=clock, spent_store=store)
+    before.send(LOCATION_ID, draft, approval=approval)
+
+    after = ApprovedSender(port=port, ledger=ledger, clock=clock, spent_store=store)
+    with pytest.raises(UnapprovedOutbound, match="already used"):
+        after.send(LOCATION_ID, draft, approval=approval)

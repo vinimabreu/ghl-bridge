@@ -179,10 +179,12 @@ def test_a_review_lead_creates_no_contact(server, token, clock, port) -> None:
 
 
 def test_a_valid_email_with_an_unresolvable_phone_still_merges_on_email(
-    server, token, clock, dana
+    server, token, clock, dana, port
 ) -> None:
     """The phone cannot become a key, but the email can, and one good key
-    is enough to resolve; the raw phone rides along on the contact."""
+    is enough to resolve; the raw phone rides along on the contact as data
+    and is never planted in the phone index, so a later stranger typing
+    the same junk cannot reach this contact through it."""
     deduper, _ = deduper_with_ledger(server, token, clock)
     result = deduper.resolve(
         LOCATION,
@@ -191,3 +193,4 @@ def test_a_valid_email_with_an_unresolvable_phone_still_merges_on_email(
     )
     assert isinstance(result, Resolved)
     assert result.matched_on == "email"
+    assert port.search_contacts_by_phone(LOCATION_ID, "not a number") == ()
