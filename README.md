@@ -6,6 +6,10 @@
 ![tests](https://img.shields.io/badge/tests-379%20passing-brightgreen)
 ![typing](https://img.shields.io/badge/typing-strict-informational)
 
+![ghl-bridge demo](assets/ghl-bridge.gif)
+
+Every number in the animation comes from the repo's own offline demo, `python -m examples.bridge_demo`; nothing in it is invented. An MP4 of the same animation lives at [assets/ghl-bridge.mp4](assets/ghl-bridge.mp4).
+
 A CRM automation that guesses is a liability. The bridge validates before it writes, dedupes before it creates, respects the platform's rate limits, and no message leaves for a customer without a named approval path. All of it proven offline, deterministically, with no account and no key.
 
 This is the CRM sibling of [make-failsafe](https://github.com/vinimabreu/make-failsafe) (the same reliability doctrine applied to Make.com scenarios) and [confidence-gate](https://github.com/vinimabreu/confidence-gate) (the same auto-or-human decision applied to extraction output). The three share one thesis: automation earns autonomy per action, and everything else goes to a human with the reason named.
