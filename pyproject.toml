@@ -1,0 +1,80 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ghl-bridge"
+version = "0.1.0"
+description = "A policy-gated bridge between a GoHighLevel sub-account and an injected reply generator. Validates before it writes, dedupes before it creates, respects the platform's rate limits, and no message leaves without a named approval path. Proven offline against a deterministic fake of the documented API 2.0 semantics."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Vinicius Pereira" }]
+keywords = [
+    "gohighlevel",
+    "highlevel",
+    "leadconnector",
+    "crm automation",
+    "webhook idempotency",
+    "policy gate",
+    "human in the loop",
+    "rate limiting",
+    "lead deduplication",
+    "sms automation",
+]
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: MIT License",
+    "Typing :: Typed",
+]
+dependencies = ["pydantic>=2"]
+
+[project.urls]
+Homepage = "https://github.com/vinimabreu/ghl-bridge"
+Source = "https://github.com/vinimabreu/ghl-bridge"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
+live = ["requests>=2.32"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ghl_bridge"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "examples", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RET", "PIE"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+plugins = ["pydantic.mypy"]
+mypy_path = "src"
+files = ["src", "examples"]
+
+[[tool.mypy.overrides]]
+module = "examples.*"
+disallow_untyped_defs = true
+
+# The live transport imports requests, which is optional by design and absent
+# from the core toolchain. The URL, header and error-mapping logic lives in
+# ghl_bridge.live.mapping, which stays under strict checking; the transport
+# wrapper relaxes only the rules that need the SDK's own type stubs installed.
+[[tool.mypy.overrides]]
+module = ["requests", "requests.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["ghl_bridge.live.transport"]
+disallow_untyped_calls = false
+warn_return_any = false
